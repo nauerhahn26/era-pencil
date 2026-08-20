@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en" data-park-override="center">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Pencil</title>
+<link rel="stylesheet" href="../lib/tokens.css">
+<style>
+  /* ============================================================
+     The Pencil — Ellie's alternative pencil as software.
+     THE RING (dad's layout, approved 7/31): the alphabet ring wraps
+     the page — door · Read · abcd down the left edge, efgh/i-n/o-t/u-z
+     across the bottom, clear+delete · Send · space up the right edge.
+     Center = her paper + 3 fixed prediction slots + the black rest
+     block, which is also the gaze PARK spot (POST /app/park; transient,
+     cleared when the door exits). Zero-gap seam cells: the Making Words
+     band case law extended to the full perimeter. Letter pages: letters
+     take the whole bottom edge; back takes the abcd seat; predictions
+     rest. NO autocorrect, NO red marks, her words are never "fixed".
+     ============================================================ */
+  /* contract colors come from lib/tokens.css (single source); the app keeps only
+     its DERIVED shades (washes/lines) + font stack, which are not contract values */
+  :root{
+    --ink:var(--color-ink); --paper:var(--color-paper); --teal:var(--color-primary);
+    --vowel:var(--color-vowel); --good:var(--color-success);
+    --card:#FFFFFF; --line:#D8E0DE; --teal-deep:#0B4E58; --teal-wash:#E4EFEF;
+    --vowel-wash:#FBEDE5; --good-wash:#E5F0EA;
+    --font:"Segoe UI", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box; user-select:none}
+  html,body{height:100%}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--font); overflow:hidden}
+
+  #page{position:fixed; inset:0; display:none; flex-direction:column}
+  .rrow{display:flex; min-height:0}
+  #rowTop{flex:0 0 46.3%}
+  #rowMid{flex:0 0 25.9%}
+  #rowBottom{flex:1; position:relative; z-index:5}  /* taps here always beat overlay chrome */
+
+  /* ---- ring cells (seams, not gaps — band case law) ---- */
+  .cell{background:var(--card); border:2px solid #E4EAE8; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; gap:2px; font-weight:700; text-align:center;
+        color:var(--ink)}
+  .cell small{font-size:44px; font-weight:600; color:#5A6A70}  /* captions are read: 44 absolute min */
+  .cell.ctl{background:#F1F5F4}
+  .cell.primary{background:var(--teal); border-color:var(--teal-deep); color:#fff}
+  #colL,#colR{display:flex; flex-direction:column}
+  #colL{flex:0 0 24%}
+  #colR{flex:0 0 19.8%}
+  #colL>.cell, #colR>.cell, #colR>#cdRow{flex:1; min-height:0}
+  #cdRow{display:flex}
+  #cdRow>.cell{flex:1}
+  #door{font-size:clamp(44px,4.4vw,84px); color:#5A6A70}
+  #btnRead,#btnSend{font-size:clamp(40px,4vw,78px)}
+  #btnSpace .glyph{font-size:clamp(34px,3.3vw,64px)}
+  #btnSpace .word{font-size:clamp(44px,3.9vw,74px); font-weight:700}
+  #cdRow .glyph{font-size:clamp(36px,3.5vw,68px)}
+  #seatA{font-size:clamp(44px,5vw,96px); letter-spacing:.06em}
+  #seatA.back{background:#F1F5F4; color:#5A6A70; font-size:clamp(40px,4vw,78px); letter-spacing:0}
+  .v{color:var(--vowel)}
+  .gcell{font-size:clamp(40px,4.4vw,84px); line-height:1.16; letter-spacing:.06em}
+  .gcell.one{font-size:clamp(44px,5vw,96px)}
+  .lcell{font-size:clamp(74px,7.8vw,150px)}
+  .lcell.vowel{background:var(--vowel-wash); color:var(--vowel)}
+
+  /* ---- center: paper, fixed prediction slots, rest block ---- */
+  #centerTop{flex:1; display:flex; flex-direction:column; min-width:0; padding:26px 28px 0}
+  /* paper flexes but its box never moves; predictions are ALWAYS 3 slots (filled or
+     rested) so nothing shifts under her gaze, ever */
+  #paper{flex:1; min-height:0; overflow-y:auto; background:var(--card); border:3px solid var(--line);
+         border-radius:20px; padding:16px 28px}
+  #text{font-size:clamp(44px,7.5vh,92px); font-weight:600; line-height:1.3; word-wrap:break-word; min-height:70px}
+  #text .word{margin-right:0.45em}
+  #text .partial{color:var(--teal-deep); margin-right:3px}
+  #caret{display:inline-block; width:6px; height:clamp(44px,6.8vh,74px); background:var(--teal);
+         vertical-align:-8px; animation:blink 1.1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+  #predict{flex:0 0 auto; display:flex; gap:28px; padding:12px 0 14px; height:clamp(96px,15vh,152px)}  /* gap = contract floor */
+  .pword{flex:1; max-width:360px; border-radius:20px; background:var(--teal-wash); border:3px solid #BFDCE0;
+         display:flex; align-items:center; justify-content:center;
+         font-size:clamp(44px,3.9vw,74px); font-weight:700; color:var(--teal-deep)}  /* she READS these: 74 @1920 */
+  .pword.rested{opacity:.35; background:#EEF2F1; border-color:#DDE5E3}
+  #restBlock{flex:1; background:#000; border:2px solid #000; display:flex;
+             align-items:center; justify-content:center}   /* HER rest spot + the gaze park */
+  #restBlock .ringmark{width:clamp(56px,5vw,96px); height:clamp(56px,5vw,96px);
+             border:5px solid #2E3A3F; border-radius:50%}
+
+  #ttsWarn{display:none; position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+           background:#B23A48; color:#fff; font-size:20px; padding:8px 22px;
+           border-radius:12px 12px 0 0; z-index:70; pointer-events:none}  /* rides over letters — must never eat a tap */
+  #ttsWarn.show{display:block}
+
+  /* partner strip — touch only; tab lives top-center over the (non-interactive) paper
+     margin, since the ring now owns every screen edge */
+  #partner{position:fixed; left:50%; transform:translateX(-50%); top:0; z-index:60;
+           background:rgba(23,39,46,.94); border-radius:0 0 18px 18px; padding:10px 16px;
+           display:flex; gap:12px; transition:opacity .3s; opacity:0; pointer-events:none}
+  #partner.show{opacity:1; pointer-events:auto}
+  #partner button{background:#2A3B43; color:#DFE9E7; border:0; border-radius:12px;
+                  font-size:22px; padding:12px 18px; font-family:var(--font)}
+  #partnerTab{position:fixed; left:50%; transform:translateX(-50%); top:0; width:220px; height:16px;
+              z-index:1; background:transparent}  /* under content: real buttons win where they overlap */
+
+  .screen{position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+          justify-content:center; gap:40px; background:var(--paper); z-index:40}
+  .screen.show{display:flex}
+  .title{font-size:72px; font-weight:750; text-align:center}
+  .subtitle{font-size:46px; color:#5A6A70; text-align:center; max-width:1000px; line-height:1.35}
+  .row{display:flex; gap:30px; justify-content:center; flex-wrap:wrap}
+  .action{padding:clamp(22px,3vh,34px) clamp(44px,5vw,72px); border-radius:20px; background:var(--card); border:3px solid var(--line);
+          font-size:clamp(44px,6.9vh,74px); font-weight:650}  /* 74 @1080 — start/confirm screens have room */
+  .action.primary{background:var(--teal); border-color:var(--teal-deep); color:#fff}
+  .confetti{position:fixed; width:14px; height:22px; border-radius:4px; z-index:80; pointer-events:none}
+  @media (prefers-reduced-motion: reduce){ .confetti{display:none} }
+</style>
+<script>
+  window.DwellConfig = {
+    ms: 1200, graceMs: 400, decayMs: 1000, padPx: 16, rearmPx: 48,
+    audioPreview: false, chime: false, bus: "auto", staleMs: 600, color: "#0F7C8A"
+  };
+</script>
+</head>
+<body>
+<div id="ttsWarn">⚠ Voice not working — check Windows audio/TTS.</div>
+
+<div id="partnerTab"></div>
+<div id="partner">
+  <button id="pPause">⏸ pause</button>
+  <button id="pRead">🔊 read it</button>
+  <button id="pUndoWord">↩ undo word</button>
+  <button id="pEasier">🐢 dwell +200</button>
+  <button id="pFaster">🐇 dwell −200</button>
+  <button id="pVoice">🎙 voice</button>
+  <button id="pPublish">✉ publish</button>
+  <button id="pClear">🗑 new page</button>
+  <button id="pClose">✕</button>
+</div>
+
+<!-- No start screen (D48, dad 8/5): boot lands straight on #page; the door
+     exits straight to TD Snap. The kiosk's autoplay flag covers speech init. -->
+
+<div id="sClearConfirm" class="screen">
+  <div class="title">Clear everything?</div>
+  <div class="subtitle">This erases what you wrote. You can&rsquo;t undo it.</div>
+  <div class="row" style="gap:80px">
+    <div class="action dwell" data-dwell-ms="1600" id="btnClearNo">↩ keep it</div>
+    <div class="action dwell" data-dwell-ms="1600" id="btnClearYes" style="border-color:#B23A48; color:#B23A48">🗑 clear all</div>
+  </div>
+</div>
+
+<div id="sConfirm" class="screen">
+  <div class="title">Send to your family?</div>
+  <div class="subtitle" id="confirmSub"></div>
+  <div class="row" style="gap:80px">
+    <div class="action dwell" data-dwell-ms="1600" id="btnKeep">↩ keep writing</div>
+    <div class="action primary dwell" data-dwell-ms="1600" id="btnConfirm">✓ send</div>
+  </div>
+</div>
+
+<div id="sDone" class="screen">
+  <div class="title" id="doneTitle">Sent! ✉</div>
+  <div class="subtitle" id="doneSub">Your words are on their way to your family.</div>
+  <div class="row">
+    <div class="action primary dwell" data-dwell-ms="1600" id="btnAgain">Write more ▶</div>
+  </div>
+</div>
+
+<div id="page">
+  <div class="rrow" id="rowTop">
+    <div id="colL">
+      <div id="door" class="cell dwell" data-dwell-ms="2400" data-dwell-say="door" aria-label="door">🚪</div>
+      <div id="btnRead" class="cell dwell" data-dwell-ms="1600">🔊 Read</div>
+    </div>
+    <div id="centerTop">
+      <div id="paper"><div id="text"><span id="caret"></span></div></div>
+      <div id="predict"></div>
+    </div>
+    <div id="colR">
+      <div id="cdRow">
+        <div id="clearAll" class="cell ctl dwell" data-dwell-ms="2000" data-font-reduced="1" aria-label="clear all">
+          <span class="glyph">🗑</span><small>clear</small></div>
+        <div id="btnDel" class="cell ctl dwell" data-dwell-ms="1800" data-font-reduced="1" aria-label="delete">
+          <span class="glyph">⌫</span><small>delete</small></div>
+      </div>
+      <div id="btnSend" class="cell primary dwell" data-dwell-ms="2200">✉ Send</div>
+    </div>
+  </div>
+  <div class="rrow" id="rowMid">
+    <div id="seatA" class="cell dwell" style="flex:0 0 24%"></div>
+    <div id="restBlock" aria-hidden="true"><div class="ringmark"></div></div>
+    <div id="btnSpace" class="cell dwell" style="flex:0 0 19.8%">
+      <span class="glyph">␣</span><span class="word">space</span></div>
+  </div>
+  <div class="rrow" id="rowBottom"></div>
+</div>
+
+<script src="../dwell.js"></script>
+<script src="../speech.js"></script>
+<script type="module">
+  // contract shim: classic scripts stay classic (tests reach app globals);
+  // module runs before the deferred app script in document order.
+  import { CONTRACT, holdFor, holdForDoor } from "../lib/contract.js";
+  import { confetti } from "../lib/celebrate.js";
+  window.EllieContract = { CONTRACT, holdFor, holdForDoor };
+  window.EllieCelebrate = { confetti };
+</script>
+<script src="pencil.js" defer></script>
+</body>
+</html>

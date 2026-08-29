@@ -462,7 +462,7 @@ async function exitDoor() {
     const r = await fetch("http://127.0.0.1:49155/app/exit", { method: "POST" });
     if (r.ok) return;          // ERAgaze is closing this kiosk right now
   } catch { /* no engine here — web fallback */ }
-  location.reload();   // draft persists in localStorage
+  location.href = "/home/";   // product exit: back to the hub (draft persists in localStorage)
 }
 $("door").addEventListener("click", exitDoor);
 

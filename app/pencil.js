@@ -351,11 +351,18 @@ async function confirmSend() {
   renderText();
   log("publish", { text });
   const msg = { t: Date.now(), session: S.session, text };
-  let delivered = false;
+  // The hub answers with the truth (audit 9/2): {mailed:true} means a real
+  // email was accepted; "not configured" means no family email is set up yet
+  // and her words wait in Settings; "failed" means the hub keeps retrying.
+  // Before this, every family heard "Sent!" whether or not anything was.
+  let delivered = false, mailed = false, reason = "";
   try {
     const res = await fetch("/publish", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(msg) });
     delivered = res.ok;
+    if (res.ok && res.status !== 204) {
+      try { const j = await res.json(); mailed = !!j.mailed; reason = j.reason || ""; } catch {}
+    } else mailed = res.ok;
   } catch { delivered = false; }
   if (!delivered) {
     // keep it safe, tell her honestly (never her fault), retry on next boot
@@ -366,6 +373,23 @@ async function confirmSend() {
     $("ttsWarn").textContent = "⚠ Message saved but NOT sent yet (no connection). It will send automatically.";
     $("ttsWarn").classList.add("show");
     log("publish_queued", { text });
+    $("doneTitle").textContent = "Saved! 💾";
+    $("doneSub").textContent = "“" + text + "” — I'm keeping your words safe and will send them soon.";
+    showScreen("sDone");
+    await say("I'm keeping your words safe, and I'll send them to your family as soon as I can.");
+    return;
+  }
+  if (!mailed && reason === "not configured") {
+    log("publish_saved", { text, reason });
+    $("doneTitle").textContent = "Saved for your family! 📖";
+    $("doneSub").textContent = "“" + text + "” — they can read it in Settings.";
+    showScreen("sDone");
+    confetti(20);
+    await say("Saved! Your family can read your words. " + text);
+    return;
+  }
+  if (!mailed) {
+    log("publish_saved", { text, reason });
     $("doneTitle").textContent = "Saved! 💾";
     $("doneSub").textContent = "“" + text + "” — I'm keeping your words safe and will send them soon.";
     showScreen("sDone");

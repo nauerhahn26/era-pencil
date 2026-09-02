@@ -9,7 +9,8 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   const logs = [], pubs = [];
   await page.route('**/log', async r => { logs.push(JSON.parse(r.request().postData())); r.fulfill({ status: 204, body: '' }); });
-  await page.route('**/publish', async r => { pubs.push(JSON.parse(r.request().postData())); r.fulfill({ status: 204, body: '' }); });
+  let mailAnswer = { saved: true, mailed: true };   // the hub's honest answer (audit 9/2)
+  await page.route('**/publish', async r => { pubs.push(JSON.parse(r.request().postData())); r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mailAnswer) }); });
   await page.route('**/voices', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: false, current: '', voices: [] }) }));
   await page.route('**/tts', r => r.fulfill({ status: 503, body: '' }));
   await page.goto('http://127.0.0.1:8377/pencil/');
@@ -93,7 +94,20 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
   await gazeText('✓ send', 2100); await sleep(1200);
   check('publish posted after confirm', pubs.length === 1 && pubs[0].text.includes('bag'), JSON.stringify(pubs));
   check('done screen shows her words', (await page.textContent('#doneSub')).includes('bag'));
+  check('mailed -> "Sent!"', (await page.textContent('#doneTitle')).startsWith('Sent!'), await page.textContent('#doneTitle'));
   check('state cleared synchronously (no draft)', (await page.evaluate(() => localStorage.getItem('pencil_draft'))) === null);
+
+  console.log('I2) no family email set up -> "Saved for your family", never "Sent"');
+  mailAnswer = { saved: true, mailed: false, reason: 'not configured' };
+  await gazeText('Write more', 1800); await park(); await sleep(500);
+  await typeLetter('h'); await typeLetter('i');
+  if (await page.locator('#partner.show').count() === 0) await page.click('#partnerTab');
+  await page.click('#pPublish'); await sleep(600);
+  await gazeText('✓ send', 2100); await sleep(1200);
+  check('second publish posted', pubs.length === 2 && pubs[1].text.includes('hi'), JSON.stringify(pubs));
+  const t2 = await page.textContent('#doneTitle');
+  check('not configured -> "Saved for your family"', t2.startsWith('Saved for your family'), t2);
+  check('tells the family where to find it', (await page.textContent('#doneSub')).includes('Settings'));
 
   console.log('J) logging flowed');
   const kinds = new Set(logs.map(l => l.event));

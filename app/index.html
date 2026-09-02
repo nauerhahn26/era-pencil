@@ -44,6 +44,10 @@
   .cell small{font-size:44px; font-weight:600; color:#5A6A70}  /* captions are read: 44 absolute min */
   .cell.ctl{background:#F1F5F4}
   .cell.primary{background:var(--teal); border-color:var(--teal-deep); color:#fff}
+  /* greyed out until the family has an email on file (dad 9/2). Colour goes,
+     SIZE NEVER DOES — the text stays on the 74px ladder like every other tile. */
+  .cell.is-disabled, .cell.primary.is-disabled{background:#EBEFEE; border-color:#DCE3E1;
+        color:#8DA0A5; cursor:default}
   #colL,#colR{display:flex; flex-direction:column}
   #colL{flex:0 0 24%}
   #colR{flex:0 0 19.8%}

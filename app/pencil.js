@@ -26,6 +26,7 @@ const S = {
   page: "groups",       // groups | letters:<idx>
   session: "s" + Date.now(),
   tts: true, paused: false,
+  sendReady: true, mailChecked: false,   // Send is live until the hub says there's no email (dad 9/2)
   lastActionAt: Date.now(), nudges: 0
 };
 
@@ -402,6 +403,33 @@ async function confirmSend() {
   confetti(20);
   await say("Sent! Your words are on their way to your family. " + text);
 }
+// ---------- Send needs an email on file (dad 9/2) ----------
+// "Send should be grayed out if there is not an email on file." Until Settings
+// holds BOTH the family address and a working key, the Send tile is greyed and
+// inert (data-dwell-disabled — the dwell engine's own skip; gaze, tap and
+// keyboard all pass it by), so the tile never promises a send it can't make.
+// Re-asked every 30s so it lights up the moment the family finishes setup,
+// with no relaunch (the reader's 9/2 "never notices" bug). If the hub can't
+// answer at all, Send stays ON: confirmSend's outbox is the honest path there.
+const MAIL_POLL_MS = 30000;
+function setSendReady(on) {
+  S.sendReady = on;
+  const b = $("btnSend");
+  b.classList.toggle("is-disabled", !on);
+  b.setAttribute("aria-disabled", on ? "false" : "true");
+  if (on) b.removeAttribute("data-dwell-disabled");
+  else b.setAttribute("data-dwell-disabled", "");
+}
+async function syncSendGate() {
+  try {
+    const m = await (await fetch("/mail-config")).json();
+    setSendReady(!!(m.email && m.hasKey));
+  } catch { setSendReady(true); }     // hub unreachable — the outbox keeps her words safe
+  S.mailChecked = true;
+}
+// test hook (the reader's window.Reader pattern) — the send gate is the only
+// state a suite needs to see from outside.
+window.Pencil = { state: () => ({ sendReady: S.sendReady, mailChecked: S.mailChecked }), syncSendGate };
 async function flushOutbox() {
   let box = [];
   try { box = JSON.parse(localStorage.getItem("pencil_outbox") || "[]"); } catch {}
@@ -525,6 +553,8 @@ async function bootSession() {
   showScreen("page");
   renderGroups(); renderText();
   tellPark();                                   // rest block becomes the park spot
+  syncSendGate();                               // grey Send out if no email is on file (dad 9/2)
+  setInterval(syncSendGate, MAIL_POLL_MS);      // …and light it up when setup finishes, no relaunch
   try { const st = await (await fetch("/settings")).json(); if (st.dwellMs && window.Dwell) Dwell.setMs(st.dwellMs);
     if (st.childName) window.ERA_CHILD_NAME = st.childName;
     if (Array.isArray(st.personalWords) && st.personalWords.length) { PERSONAL = st.personalWords; rebuildLex(); } } catch {}
@@ -546,7 +576,14 @@ $("seatA").addEventListener("click", seatAction);
 $("btnSpace").addEventListener("click", endWord);
 $("btnDel").addEventListener("click", backspace);
 $("btnRead").addEventListener("click", readAll);
-$("btnSend").addEventListener("click", publish);
+$("btnSend").addEventListener("click", () => {
+  // greyed out with no email on file (dad 9/2): a tap, a gaze fire or a
+  // keyboard activation all do nothing rather than promise a send. The partner
+  // strip's ✉ publish still works — an adult choosing the Settings fallback
+  // knows where her words go.
+  if (!S.sendReady) { log("send_blocked", { reason: "no email on file" }); return; }
+  publish();
+});
 $("clearAll").addEventListener("click", async () => {
   if (!S.words.length && !S.partial) { await say("Nothing to clear yet."); return; }
   log("clear_confirm_shown", {});

@@ -5,12 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Pencil</title>
 <link rel="stylesheet" href="../lib/tokens.css">
+<link rel="stylesheet" href="../lib/doorbar.css">
 <style>
   /* ============================================================
      The Pencil — Ellie's alternative pencil as software.
      THE RING (dad's layout, approved 7/31): the alphabet ring wraps
-     the page — door · Read · abcd down the left edge, efgh/i-n/o-t/u-z
+     the page — Read · abcd down the left edge, efgh/i-n/o-t/u-z
      across the bottom, clear+delete · Send · space up the right edge.
+     The DOOR left the ring on 9/17: 🚪 and the new 💬 "pause to talk"
+     live in the shared message bar (era-core lib/doorbar.js + .css)
+     that all five of Ellie's apps now wear, so the strip and its two
+     holds are learned once and never move between apps. Read takes
+     the whole left seat the door used to share.
      Center = her paper + 3 fixed prediction slots + the black rest
      block, which is also the gaze PARK spot (POST /app/park; transient,
      cleared when the door exits). Zero-gap seam cells: the Making Words
@@ -31,7 +37,16 @@
   html,body{height:100%}
   body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--font); overflow:hidden}
 
-  #page{position:fixed; inset:0; display:none; flex-direction:column}
+  /* the shared bar owns the top strip; everything the app draws starts under it
+     (--bar-h is published on <body> by doorbar.js sizeBar(), fallback 0 for the
+     instant before the bar mounts and for any fixture that mounts none).
+     THE EXTRA 2px: the ring is full-bleed (band case law — seams, not gaps), but
+     the 🚪 is not a ring cell. doorbar.css's own bottom padding + border leave it
+     12px above the Read tile — a SLIVER, one pixel under the contract's 14px gap
+     floor, which law 1 flags (a gap is a real gap or a shared edge, never in
+     between; era-hub tests/invariants.mjs MINGAP). The board never saw it: its
+     grid adds vPad on top of the bar's. The ring starts 2px lower instead. */
+  #page{position:fixed; inset:0; top:calc(var(--bar-h, 0px) + 2px); display:none; flex-direction:column}
   .rrow{display:flex; min-height:0}
   #rowTop{flex:0 0 46.3%}
   #rowMid{flex:0 0 25.9%}
@@ -54,7 +69,6 @@
   #colL>.cell, #colR>.cell, #colR>#cdRow{flex:1; min-height:0}
   #cdRow{display:flex}
   #cdRow>.cell{flex:1}
-  #door{font-size:clamp(44px,4.4vw,84px); color:#5A6A70}
   #btnRead,#btnSend{font-size:clamp(40px,4vw,78px)}
   #btnSpace .glyph{font-size:clamp(34px,3.3vw,64px)}
   #btnSpace .word{font-size:clamp(44px,3.9vw,74px); font-weight:700}
@@ -94,18 +108,24 @@
            border-radius:12px 12px 0 0; z-index:70; pointer-events:none}  /* rides over letters — must never eat a tap */
   #ttsWarn.show{display:block}
 
-  /* partner strip — touch only; tab lives top-center over the (non-interactive) paper
-     margin, since the ring now owns every screen edge */
-  #partner{position:fixed; left:50%; transform:translateX(-50%); top:0; z-index:60;
+  /* partner strip — touch only; the tab and the panel it opens hang from UNDER
+     the shared bar (9/17), never over it: the two doors must stay reachable and
+     the 💬 sits in exactly the top-centre spot the tab used to occupy */
+  #partner{position:fixed; left:50%; transform:translateX(-50%); top:var(--bar-h, 0px); z-index:60;
            background:rgba(23,39,46,.94); border-radius:0 0 18px 18px; padding:10px 16px;
            display:flex; gap:12px; transition:opacity .3s; opacity:0; pointer-events:none}
   #partner.show{opacity:1; pointer-events:auto}
   #partner button{background:#2A3B43; color:#DFE9E7; border:0; border-radius:12px;
                   font-size:22px; padding:12px 18px; font-family:var(--font)}
-  #partnerTab{position:fixed; left:50%; transform:translateX(-50%); top:0; width:220px; height:16px;
+  /* 12px of clear air under the bar: the tab is dead centre, directly below the
+     💬, and a touch aimed at the talk door that lands a few px low must open a
+     conversation, not the partner panel. Touch-only strip, so this is a comfort
+     gap, not the contract's MINGAP (which governs what she LOOKS at). */
+  #partnerTab{position:fixed; left:50%; transform:translateX(-50%); top:calc(var(--bar-h, 0px) + 12px);
+              width:220px; height:16px;
               z-index:1; background:transparent}  /* under content: real buttons win where they overlap */
 
-  .screen{position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+  .screen{position:fixed; inset:0; top:var(--bar-h, 0px); display:none; flex-direction:column; align-items:center;
           justify-content:center; gap:40px; background:var(--paper); z-index:40}
   .screen.show{display:flex}
   .title{font-size:72px; font-weight:750; text-align:center}
@@ -147,8 +167,8 @@
   <div class="title">Clear everything?</div>
   <div class="subtitle">This erases what you wrote. You can&rsquo;t undo it.</div>
   <div class="row" style="gap:80px">
-    <div class="action dwell" data-dwell-ms="1600" id="btnClearNo">↩ keep it</div>
-    <div class="action dwell" data-dwell-ms="1600" id="btnClearYes" style="border-color:#B23A48; color:#B23A48">🗑 clear all</div>
+    <div class="action dwell" id="btnClearNo">↩ keep it</div>
+    <div class="action dwell" id="btnClearYes" style="border-color:#B23A48; color:#B23A48">🗑 clear all</div>
   </div>
 </div>
 
@@ -156,8 +176,8 @@
   <div class="title">Send to your family?</div>
   <div class="subtitle" id="confirmSub"></div>
   <div class="row" style="gap:80px">
-    <div class="action dwell" data-dwell-ms="1600" id="btnKeep">↩ keep writing</div>
-    <div class="action primary dwell" data-dwell-ms="1600" id="btnConfirm">✓ send</div>
+    <div class="action dwell" id="btnKeep">↩ keep writing</div>
+    <div class="action primary dwell" id="btnConfirm">✓ send</div>
   </div>
 </div>
 
@@ -165,15 +185,14 @@
   <div class="title" id="doneTitle">Sent! ✉</div>
   <div class="subtitle" id="doneSub">Your words are on their way to your family.</div>
   <div class="row">
-    <div class="action primary dwell" data-dwell-ms="1600" id="btnAgain">Write more ▶</div>
+    <div class="action primary dwell" id="btnAgain">Write more ▶</div>
   </div>
 </div>
 
 <div id="page">
   <div class="rrow" id="rowTop">
     <div id="colL">
-      <div id="door" class="cell dwell" data-dwell-ms="2400" data-dwell-say="door" aria-label="door">🚪</div>
-      <div id="btnRead" class="cell dwell" data-dwell-ms="1600">🔊 Read</div>
+      <div id="btnRead" class="cell dwell">🔊 Read</div>
     </div>
     <div id="centerTop">
       <div id="paper"><div id="text"><span id="caret"></span></div></div>
@@ -181,12 +200,12 @@
     </div>
     <div id="colR">
       <div id="cdRow">
-        <div id="clearAll" class="cell ctl dwell" data-dwell-ms="2000" data-font-reduced="1" aria-label="clear all">
+        <div id="clearAll" class="cell ctl dwell" data-font-reduced="1" aria-label="clear all">
           <span class="glyph">🗑</span><small>clear</small></div>
-        <div id="btnDel" class="cell ctl dwell" data-dwell-ms="1800" data-font-reduced="1" aria-label="delete">
+        <div id="btnDel" class="cell ctl dwell" data-font-reduced="1" aria-label="delete">
           <span class="glyph">⌫</span><small>delete</small></div>
       </div>
-      <div id="btnSend" class="cell primary dwell" data-dwell-ms="2200">✉ Send</div>
+      <div id="btnSend" class="cell primary dwell">✉ Send</div>
     </div>
   </div>
   <div class="rrow" id="rowMid">
@@ -203,9 +222,11 @@
 <script type="module">
   // contract shim: classic scripts stay classic (tests reach app globals);
   // module runs before the deferred app script in document order.
-  import { CONTRACT, holdFor, holdForDoor } from "../lib/contract.js";
+  import { CONTRACT, holdFor, holdForExit } from "../lib/contract.js";
+  import { mountDoorBar } from "../lib/doorbar.js";
   import { confetti } from "../lib/celebrate.js";
-  window.EllieContract = { CONTRACT, holdFor, holdForDoor };
+  window.EllieContract = { CONTRACT, holdFor, holdForExit };
+  window.DoorBar = { mountDoorBar };            // the shared 🚪 + 💬 strip (9/17)
   window.EllieCelebrate = { confetti };
 </script>
 <script src="pencil.js" defer></script>

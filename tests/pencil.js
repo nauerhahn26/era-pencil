@@ -42,7 +42,17 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
   check('start screen gone from the DOM', await page.locator('#sStart').count() === 0);
   await sleep(3800);   // background TTS self-test timeout in headless
   check('5 letter groups (abcd seat + 4 bottom)', (await page.locator('#rowBottom .gcell').count()) === 4 && /a b c d/.test((await page.textContent('#seatA')).trim()));
-  check('rest block inert + door present', await page.locator('#restBlock').count() === 1 && await page.locator('#restBlock.dwell').count() === 0 && (await page.getAttribute('#door','data-dwell-ms')) === '2400');
+  // The door is the shared bar's 🚪 now (era-core lib/doorbar.js, 9/17) and it
+  // holds 2 x HER dwell — read from the hub's /settings, never a pinned number
+  // (dad's 9/17 ruling: one dwell per user, doors are the only thing doubled).
+  const stDwell = await page.evaluate(() => fetch('/settings').then(r => r.json()).then(j => j.dwellMs).catch(() => null));
+  const doorHold = String(2 * (stDwell || 1200));
+  // …and every OTHER control holds exactly her dwell, so a gaze meant to fire one
+  // is that dwell plus a margin — never a number pinned to the old fixed holds.
+  const contentHold = (stDwell || 1200) + 600;
+  const gotHold = await page.getAttribute('#barDoor', 'data-dwell-ms');
+  check('rest block inert + bar door at 2x dwell', await page.locator('#restBlock').count() === 1 && await page.locator('#restBlock.dwell').count() === 0 && gotHold === doorHold, gotHold + ' want ' + doorHold);
+  check('no ring door cell any more (the bar carries it)', await page.locator('#door').count() === 0);
 
   console.log('B) flip-book typing: b-a-g');
   await typeLetter('b'); await typeLetter('a'); await typeLetter('g');
@@ -99,7 +109,7 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
 
   console.log('I2) no family email set up -> "Saved for your family", never "Sent"');
   mailAnswer = { saved: true, mailed: false, reason: 'not configured' };
-  await gazeText('Write more', 1800); await park(); await sleep(500);
+  await gazeText('Write more', contentHold); await park(); await sleep(500);
   await typeLetter('h'); await typeLetter('i');
   if (await page.locator('#partner.show').count() === 0) await page.click('#partnerTab');
   await page.click('#pPublish'); await sleep(600);

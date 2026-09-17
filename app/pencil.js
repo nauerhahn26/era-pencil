@@ -148,6 +148,12 @@ function log(event, detail) {
 
 // ---------- speech (shared layer) ----------
 function say(text, opts) {
+  // PAUSED IS SILENT (Making Words parity, 9/17): she is under TD Snap saying
+  // something, or the partner has parked the page. Speech.stop() only cancels
+  // what is PLAYING — a chained prompt that resolves after the 💬 would start a
+  // fresh generation and talk over her conversation. This is the gate on what
+  // comes next; every voice the Pencil has goes through here.
+  if (S.paused) return Promise.resolve();
   if (!S.tts || !window.Speech) return Promise.resolve();
   return Speech.say(text, (opts && opts.kind) || "long");
 }
@@ -256,7 +262,7 @@ function openGroup(i) {
   log("group", { group: GROUPS[i].join("") });
   const seat = $("seatA");                       // back takes the abcd seat
   seat.classList.add("back");
-  seat.setAttribute("data-dwell-ms", String(EC.holds.navMin));
+  seat.removeAttribute("data-dwell-ms");   // her dwell like every other control (dad 9/17)
   seat.innerHTML = "<span>↩ back</span>";
   const b = $("rowBottom"); b.innerHTML = "";
   for (const L of GROUPS[i]) {
@@ -287,7 +293,9 @@ async function pickLetter(L) {
   renderText();
   renderGroups();               // flip back to groups after each letter (her flip-book rhythm)
   await sayLetter(L);
-  if (S.partial.length > 1) Speech.say("So far you have: " + soundOutPartial(S.partial) + ".", "long");
+  // through say(), not Speech.say: this is the one prompt that lands AFTER an
+  // await, so it is exactly the one a 💬 mid-echo would otherwise resume into.
+  if (S.partial.length > 1) say("So far you have: " + soundOutPartial(S.partial) + ".");
 }
 async function endWord() {
   if (S.paused) return;
@@ -467,7 +475,9 @@ function showScreen(id) {
   $("page").style.display = "none";
   if (id === "page") $("page").style.display = "flex";
   else $(id).classList.add("show");
-  // ring chrome (door/clear/delete/...) lives inside #page — hidden pages are inert
+  // ring chrome (Read/clear/delete/...) lives inside #page — hidden pages are inert.
+  // The shared bar does NOT: it sits on <body> above every screen, so the 🚪 and
+  // the 💬 are there on the confirm and done screens too (spec §5, 9/17).
 }
 
 // ---------- gentle nudges (writing is hers; we barely whisper) ----------
@@ -496,6 +506,9 @@ $("pFaster").addEventListener("click", () => tuneDwell(-200));
 function tuneDwell(d) {
   const ms = Math.max(EC.holds.floor, Math.min(EC.holds.tuneMax, (window.Dwell ? Dwell.config.ms : EC.holds.content) + d));
   if (window.Dwell) Dwell.setMs(ms);
+  // the doors follow her dwell wherever the partner takes it (dad 9/17: doors
+  // are 2 x the dwell she is ACTUALLY on, not 2 x the last /settings value)
+  if (BAR) BAR.setDwell(ms);
   log("partner", { action: "dwell", ms });
 }
 $("pPublish").addEventListener("click", publish);
@@ -503,21 +516,45 @@ $("pClear").addEventListener("click", () => {
   S.words = []; S.partial = ""; renderText(); log("partner", { action: "new_page" });
 });
 
-// ---------- door (ring door + start-screen door share it) ----------
-async function exitDoor() {
+// ---------- the shared bar: 🚪 leave and 💬 pause to talk (dad 9/17) ----------
+// The strip itself is era-core lib/doorbar.js — one bar across all five apps,
+// so the round trip (/kiosk/exit: the hub decides TD Snap vs the New ERA home,
+// and clears the /app/park override either way) lives there, not here. The
+// Pencil supplies only what the Pencil knows.
+let BAR = null;
+
+// 🚪 — she is done. The goodbye line went with the move (dad 9/17): a door that
+// talks for five seconds before it opens is a door she has to wait at, and the
+// same door now exists in four other apps that never said goodbye. Her writing
+// is already saved (saveDraft on every keystroke), so there is nothing to tell.
+function onLeave() {
   log("door", {});
-  await say("Okay — pencil down. Your writing is saved. Bye bye!");
-  // EXIT DOOR (phase 4.1): the hub decides where the door goes (Settings,
-  // dad 9/3: TD Snap or New ERA) and clears the /app/park override either
-  // way — the corner park returns. "closed" = ERAgaze took the screen and
-  // this kiosk is closing; anything else = the hub's home in this window
-  // (draft persists in localStorage).
-  let action = "home";
-  try { action = (await (await fetch("/kiosk/exit", { method: "POST" })).json()).action; } catch {}
-  if (action === "closed") return;
-  location.href = "/home/";
+  if (window.Speech) Speech.stop();
 }
-$("door").addEventListener("click", exitDoor);
+// 💬 — she is mid-sentence and wants to SAY something in TD Snap. Go quiet and
+// freeze in place; the page is about to be minimized under her, exactly as it
+// is. Nothing is cleared, nothing is sent: pausing is not leaving.
+//
+// S.paused is ALSO the partner strip's ⏸ flag (one switch, two hands), so the
+// trip to TD Snap LATCHES what it found: a page the partner had already parked
+// must come back parked. Resuming unconditionally left the pill reading
+// "▶ resume" and Dwell disabled while the page wrote again — the partner's
+// pause silently half-lifted by a screen she never touched.
+let wasPaused = false;
+function onPause() {
+  log("talk", {});
+  if (window.Speech) Speech.stop();
+  wasPaused = S.paused;
+  S.paused = true;
+}
+// TD Snap handed the screen back. Pick the pencil up where she put it down —
+// and re-post the park override, because /app/park is transient in the engine
+// and the trip through TD Snap will have reset it to the corner.
+function onResume() {
+  S.paused = wasPaused;
+  log("talk_resume", {});
+  tellPark();
+}
 
 // ---------- park: the black rest block is the gaze park spot ----------
 // Transient override in the engine (memory only, cleared by /app/exit), so
@@ -533,7 +570,10 @@ function tellPark() {
       body: JSON.stringify({ x, y }) }).catch(() => {});
   } catch {}
 }
-addEventListener("resize", tellPark);
+addEventListener("resize", () => {
+  if (BAR) BAR.sizeBar();          // the strip is 9% of the viewport — re-measure first
+  tellPark();                      // …then tell the engine where the rest block landed
+});
 
 // ---------- confetti (lib/celebrate.js via the shim — one module for the suite) ----------
 function confetti(n) { try { window.EllieCelebrate.confetti(n); } catch {} }
@@ -546,10 +586,20 @@ async function bootSession() {
   const resumed = loadDraft();
   showScreen("page");
   renderGroups(); renderText();
+  // The bar mounts BEFORE /settings lands (the board's 9/3 rule: a door from the
+  // first paint), at the contract's default hold; setDwell/setPause below hand it
+  // her real numbers. It takes the top strip, so the rest block moves down —
+  // tellPark() has to run after it, not before.
+  BAR = window.DoorBar.mountDoorBar(document.body, { onLeave, onPause, onResume });
   tellPark();                                   // rest block becomes the park spot
   syncSendGate();                               // grey Send out if no email is on file (dad 9/2)
   setInterval(syncSendGate, MAIL_POLL_MS);      // …and light it up when setup finishes, no relaunch
   try { const st = await (await fetch("/settings")).json(); if (st.dwellMs && window.Dwell) Dwell.setMs(st.dwellMs);
+    if (st.dwellMs) BAR.setDwell(st.dwellMs);   // both doors = 2 x her dwell (dad 9/17)
+    // 💬 only where there is something to talk TO: a gaze engine on the bus AND
+    // a Settings door that goes to TD Snap. On the QA VM and in a dev browser
+    // the bar looks exactly as it did before 9/17.
+    BAR.setPause(st.pauseGoes === "tdsnap");
     if (st.childName) window.ERA_CHILD_NAME = st.childName;
     if (Array.isArray(st.personalWords) && st.personalWords.length) { PERSONAL = st.personalWords; rebuildLex(); } } catch {}
   const mode = await Speech.init("Time to write!");

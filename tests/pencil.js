@@ -14,13 +14,13 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
   await page.route('**/voices', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: false, current: '', voices: [] }) }));
   await page.route('**/tts', r => r.fulfill({ status: 503, body: '' }));
   await page.goto('http://127.0.0.1:8377/pencil/');
-  await page.evaluate(() => { Dwell.set({ ms: 90, graceMs: 500, decayMs: 800 }); localStorage.removeItem('pencil_draft'); });
+  await page.evaluate(() => { localStorage.removeItem('pencil_draft'); });
 
   const gazeText = async (txt, holdMs) => {
     const el = page.locator('.dwell', { hasText: txt }).first();
     const b = await el.boundingBox();
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
-    await sleep(holdMs || 1100);
+    await sleep(holdMs || contentHold);
   };
   const park = async () => { await page.mouse.move(960, 350, { steps: 4 }); await sleep(450); };
   const typeLetter = async (L) => {
@@ -29,11 +29,11 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
     const gEl = gi === 0 ? page.locator('#seatA') : page.locator('#rowBottom .gcell').nth(gi - 1);
     let b = await gEl.boundingBox();
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
-    await sleep(1100); await park();
+    await sleep(contentHold); await park();
     const el = page.locator('.lcell', { hasText: new RegExp('^' + L + '$') }).first();
     b = await el.boundingBox();
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
-    await sleep(1100); await park();
+    await sleep(contentHold); await park();
   };
 
   console.log('A) direct entry — no start gate (D48)');
@@ -43,13 +43,13 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
   await sleep(3800);   // background TTS self-test timeout in headless
   check('5 letter groups (abcd seat + 4 bottom)', (await page.locator('#rowBottom .gcell').count()) === 4 && /a b c d/.test((await page.textContent('#seatA')).trim()));
   // The door is the shared bar's 🚪 now (era-core lib/doorbar.js, 9/17) and it
-  // holds 2 x HER dwell — read from the hub's /settings, never a pinned number
-  // (dad's 9/17 ruling: one dwell per user, doors are the only thing doubled).
-  const stDwell = await page.evaluate(() => fetch('/settings').then(r => r.json()).then(j => j.dwellMs).catch(() => null));
-  const doorHold = String(2 * (stDwell || 1200));
+  // holds 2 x the Pencil dwell, read from the hub's /settings.
+  // Other apps can use a different dwell; the doors still double this one.
+  const stDwell = await page.evaluate(() => fetch('/settings').then(r => r.json()).then(j => j.pencilDwellMs).catch(() => null));
+  const doorHold = String(2 * (stDwell || 1500));
   // …and every OTHER control holds exactly her dwell, so a gaze meant to fire one
   // is that dwell plus a margin — never a number pinned to the old fixed holds.
-  const contentHold = (stDwell || 1200) + 600;
+  const contentHold = (stDwell || 1500) + 600;
   const gotHold = await page.getAttribute('#barDoor', 'data-dwell-ms');
   check('rest block inert + bar door at 2x dwell', await page.locator('#restBlock').count() === 1 && await page.locator('#restBlock.dwell').count() === 0 && gotHold === doorHold, gotHold + ' want ' + doorHold);
   check('no ring door cell any more (the bar carries it)', await page.locator('#door').count() === 0);

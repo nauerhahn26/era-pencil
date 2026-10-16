@@ -6,3 +6,9 @@ letter echo, and TD-Snap-style delete/clear semantics. Part of the New ERA
 Communications family; runs as a module of era-hub on era-core engines.
 
 License: MPL-2.0.
+
+The hub Settings page provides an independent Alternative Pencil dwell time
+(`pencilDwellMs`, default 1500 ms, range 600–3000 ms), loaded when the Pencil
+opens. Partner dwell buttons also save this setting for future sessions. Exit
+and talk doors hold twice the current Pencil dwell. Predictions keep their
+existing 2000 ms hold.

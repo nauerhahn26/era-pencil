@@ -509,6 +509,8 @@ function tuneDwell(d) {
   // the doors follow her dwell wherever the partner takes it (dad 9/17: doors
   // are 2 x the dwell she is ACTUALLY on, not 2 x the last /settings value)
   if (BAR) BAR.setDwell(ms);
+  fetch("/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pencilDwellMs: ms }) }).catch(() => {});
   log("partner", { action: "dwell", ms });
 }
 $("pPublish").addEventListener("click", publish);
@@ -594,8 +596,10 @@ async function bootSession() {
   tellPark();                                   // rest block becomes the park spot
   syncSendGate();                               // grey Send out if no email is on file (dad 9/2)
   setInterval(syncSendGate, MAIL_POLL_MS);      // …and light it up when setup finishes, no relaunch
-  try { const st = await (await fetch("/settings")).json(); if (st.dwellMs && window.Dwell) Dwell.setMs(st.dwellMs);
-    if (st.dwellMs) BAR.setDwell(st.dwellMs);   // both doors = 2 x her dwell (dad 9/17)
+  try { const st = await (await fetch("/settings")).json();
+    const ms = Number.isFinite(st.pencilDwellMs) ? Math.max(600, Math.min(3000, st.pencilDwellMs)) : 1500;
+    if (window.Dwell) Dwell.setMs(ms);
+    BAR.setDwell(ms);   // both doors = 2 x her dwell (dad 9/17)
     // 💬 only where there is something to talk TO: a gaze engine on the bus AND
     // a Settings door that goes to TD Snap. On the QA VM and in a dev browser
     // the bar looks exactly as it did before 9/17.

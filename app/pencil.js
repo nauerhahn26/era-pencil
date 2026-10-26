@@ -16,6 +16,8 @@
  *  - Wait time sacred; nothing times out; rest spot always safe; door always there.
  */
 "use strict";
+const appLocked = () => window.AppLock?.isLocked() || false;
+let lockGeneration = 0;
 // lib/contract.js values via the index.html shim — the whitelist, not copies.
 const EC = window.EllieContract.CONTRACT;
 
@@ -153,8 +155,8 @@ function say(text, opts) {
   // what is PLAYING — a chained prompt that resolves after the 💬 would start a
   // fresh generation and talk over her conversation. This is the gate on what
   // comes next; every voice the Pencil has goes through here.
-  if (S.paused) return Promise.resolve();
-  if (!S.tts || !window.Speech) return Promise.resolve();
+  if (appLocked() || S.paused) return Promise.resolve();
+  if (appLocked() || !S.tts || !window.Speech) return Promise.resolve();
   return Speech.say(text, (opts && opts.kind) || "long");
 }
 const LETTER_NAMES = { a:"ay", b:"bee", c:"see", d:"dee", e:"ee", f:"eff", g:"jee",
@@ -165,7 +167,7 @@ const LETTER_SOUNDS = { a:"ah", b:"buh", c:"kuh", d:"duh", e:"eh", f:"fff", g:"g
   h:"huh", i:"ih", j:"juh", k:"kuh", l:"lll", m:"mmm", n:"nnn", o:"oh", p:"puh",
   q:"kwuh", r:"rrr", s:"sss", t:"tuh", u:"uh", v:"vvv", w:"wuh", x:"ks", y:"yuh", z:"zzz" };
 function sayLetter(L) {
-  if (!S.tts || !window.Speech) return Promise.resolve();
+  if (appLocked() || !S.tts || !window.Speech) return Promise.resolve();
   const k = L.toLowerCase();
   // her pairing: name then sound ("C, cuh")
   return Speech.say((LETTER_NAMES[k] || L) + ", " + (LETTER_SOUNDS[k] || ""), "letter");
@@ -285,6 +287,8 @@ function seatAction() {
 
 // ---------- writing actions ----------
 async function pickLetter(L) {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   if (S.paused) return;
   if (window.Speech) Speech.stop();   // barge-in: her action wins over our audio
   S.partial += L;
@@ -293,11 +297,14 @@ async function pickLetter(L) {
   renderText();
   renderGroups();               // flip back to groups after each letter (her flip-book rhythm)
   await sayLetter(L);
+  if (appLocked() || lockRun !== lockGeneration) return;
   // through say(), not Speech.say: this is the one prompt that lands AFTER an
   // await, so it is exactly the one a 💬 mid-echo would otherwise resume into.
   if (S.partial.length > 1) say("So far you have: " + soundOutPartial(S.partial) + ".");
 }
 async function endWord() {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   if (S.paused) return;
   if (window.Speech) Speech.stop();   // barge-in: her action wins over our audio
   if (!S.partial) return;       // no-op stays silent (review P2-7)
@@ -306,9 +313,12 @@ async function endWord() {
   S.lastActionAt = Date.now();
   log("word", { word: w, predicted: false });
   renderText();
-  await say(w);                 // her word, exactly as she wrote it
+  await say(w);
+  if (appLocked() || lockRun !== lockGeneration) return;                 // her word, exactly as she wrote it
 }
 async function pickPrediction(w) {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   if (S.paused) return;
   if (window.Speech) Speech.stop();   // barge-in: her action wins over our audio
   const was = S.partial;
@@ -317,8 +327,11 @@ async function pickPrediction(w) {
   log("word", { word: w, predicted: true, from: was });
   renderText();
   await say(w);
+  if (appLocked() || lockRun !== lockGeneration) return;
 }
 async function backspace() {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   if (S.paused) return;
   if (window.Speech) Speech.stop();   // barge-in: her action wins over our audio
   S.lastActionAt = Date.now();
@@ -333,25 +346,36 @@ async function backspace() {
   if (S.partial) sayLetter(S.partial[S.partial.length - 1]); else say("took one away");
 }
 async function readAll() {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   if (S.paused) return;
   if (window.Speech) Speech.stop();   // barge-in: her action wins over our audio
   const t = (S.words.join(" ") + " " + S.partial).trim();
   log("read", { length: t.length });
   await say(t ? t : "Nothing yet. Your page is ready for you.");
+  if (appLocked() || lockRun !== lockGeneration) return;
 }
 // Two-stage send (review P1-3): send -> confirm screen -> deliver.
 // State is cleared SYNCHRONOUSLY before any screen/speech (review P0-1), and
 // delivery is confirmed or the message is queued — never lost (review P0-2).
 async function publish() {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   if (S.paused) return;
   const text = (S.words.join(" ") + " " + S.partial).trim();
-  if (!text) { await say("Write something first — anything you like!"); return; }
+  if (!text) { await say("Write something first — anything you like!");
+  if (appLocked() || lockRun !== lockGeneration) return;
+    return;
+  }
   log("send_confirm_shown", { text });
   $("confirmSub").textContent = "“" + text + "”";
   showScreen("sConfirm");
   await say(`You wrote: ${text}. Send it to your family?`);
+  if (appLocked() || lockRun !== lockGeneration) return;
 }
 async function confirmSend() {
+  const lockRun = lockGeneration;
+  if (appLocked()) return;
   const text = (S.words.join(" ") + " " + S.partial).trim();
   if (!text) { showScreen("page"); return; }
   // --- synchronous state boundary: nothing after this can double-send or resurrect ---
@@ -373,12 +397,14 @@ async function confirmSend() {
       try { const j = await res.json(); mailed = !!j.mailed; reason = j.reason || ""; } catch {}
     } else mailed = res.ok;
   } catch { delivered = false; }
+  if (delivered && (appLocked() || lockRun !== lockGeneration)) return;
   if (!delivered) {
     // keep it safe, tell her honestly (never her fault), retry on next boot
     try {
       const box = JSON.parse(localStorage.getItem("pencil_outbox") || "[]");
       box.push(msg); localStorage.setItem("pencil_outbox", JSON.stringify(box));
     } catch {}
+    if (appLocked() || lockRun !== lockGeneration) return;
     $("ttsWarn").textContent = "⚠ Message saved but NOT sent yet (no connection). It will send automatically.";
     $("ttsWarn").classList.add("show");
     log("publish_queued", { text });
@@ -386,6 +412,7 @@ async function confirmSend() {
     $("doneSub").textContent = "“" + text + "” — I'm keeping your words safe and will send them soon.";
     showScreen("sDone");
     await say("I'm keeping your words safe, and I'll send them to your family as soon as I can.");
+    if (appLocked() || lockRun !== lockGeneration) return;
     return;
   }
   if (!mailed && reason === "not configured") {
@@ -395,6 +422,7 @@ async function confirmSend() {
     showScreen("sDone");
     confetti(20);
     await say("Saved! Your family can read your words. " + text);
+    if (appLocked() || lockRun !== lockGeneration) return;
     return;
   }
   if (!mailed) {
@@ -403,6 +431,7 @@ async function confirmSend() {
     $("doneSub").textContent = "“" + text + "” — I'm keeping your words safe and will send them soon.";
     showScreen("sDone");
     await say("I'm keeping your words safe, and I'll send them to your family as soon as I can.");
+    if (appLocked() || lockRun !== lockGeneration) return;
     return;
   }
   $("doneTitle").textContent = "Sent! ✉";
@@ -410,6 +439,7 @@ async function confirmSend() {
   showScreen("sDone");
   confetti(20);
   await say("Sent! Your words are on their way to your family. " + text);
+  if (appLocked() || lockRun !== lockGeneration) return;
 }
 // ---------- Send needs an email on file (dad 9/2) ----------
 // "Send should be grayed out if there is not an email on file." Until Settings
@@ -482,7 +512,7 @@ function showScreen(id) {
 
 // ---------- gentle nudges (writing is hers; we barely whisper) ----------
 setInterval(() => {
-  if (S.paused || $("page").style.display === "none") return;
+  if (appLocked() || S.paused || $("page").style.display === "none") return;
   // writing pauses are THINKING: 120s, once, and never while a dwell is in progress
   if (window.Dwell && Dwell.state().target) return;
   const idle = Date.now() - S.lastActionAt;
@@ -585,6 +615,7 @@ function confetti(n) { try { window.EllieCelebrate.confetti(n); } catch {} }
 // FIRST (she can write immediately); settings + speech follow async — the kiosk's
 // --autoplay-policy flag covers speech init without a user gesture.
 async function bootSession() {
+  const lockRun = lockGeneration;
   const resumed = loadDraft();
   showScreen("page");
   renderGroups(); renderText();
@@ -592,7 +623,10 @@ async function bootSession() {
   // first paint), at the contract's default hold; setDwell/setPause below hand it
   // her real numbers. It takes the top strip, so the rest block moves down —
   // tellPark() has to run after it, not before.
-  BAR = window.DoorBar.mountDoorBar(document.body, { onLeave, onPause, onResume });
+  BAR = window.DoorBar.mountDoorBar(document.body, {
+    onLock() { lockGeneration++; if (window.Speech) Speech.stop(); saveDraft(); },
+    onLeave, onPause, onResume,
+  });
   tellPark();                                   // rest block becomes the park spot
   syncSendGate();                               // grey Send out if no email is on file (dad 9/2)
   setInterval(syncSendGate, MAIL_POLL_MS);      // …and light it up when setup finishes, no relaunch
@@ -611,6 +645,7 @@ async function bootSession() {
   if (!S.tts) { $("ttsWarn").classList.add("show"); log("tts_failed", {}); }
   Speech.preload(Object.values(LETTER_NAMES).concat(["took one away"]));   // letter echoes: instant after first session
   log("session_start", { tts: S.tts, resumed });
+  if (appLocked() || lockRun !== lockGeneration) return;
   await say(resumed ? "Welcome back! Your writing is right where you left it."
                     : "What would you like to say today? Anything at all.");   // init already said hello
 }

@@ -22,7 +22,15 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
     await sleep(holdMs || contentHold);
   };
-  const park = async () => { await page.mouse.move(960, 350, { steps: 4 }); await sleep(450); };
+  // Parking re-arms the engine by DISTANCE alone (era-core dwell.js: rearmPx from
+  // the fire point) and the park spot is #paper, not a .dwell, so nothing here is
+  // time-based: the move is the whole job, no sleep after it.
+  const park = async () => { await page.mouse.move(960, 350, { steps: 4 }); };
+  // Predictions paint rested first, then fill exactly once within
+  // EC.prediction.singlePaintMs (app/pencil.js, single-paint law). Read them only
+  // after that one paint; a timeout falls through to the checks below.
+  const predictionsPainted = () => page.waitForFunction(
+    () => document.querySelectorAll('.pword:not(.rested)').length > 0, null, { timeout: 1500 }).catch(() => {});
   const typeLetter = async (L) => {
     // Ring layout: abcd = the left seat; other groups = bottom-row cells
     const gi = ["abcd","efgh","ijklmn","opqrst","uvwxyz"].findIndex(g => g.includes(L));
@@ -56,6 +64,7 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
 
   console.log('B) flip-book typing: b-a-g');
   await typeLetter('b'); await typeLetter('a'); await typeLetter('g');
+  await predictionsPainted();
   const partial = await page.evaluate(() => document.querySelector('#text .partial') && document.querySelector('#text .partial').textContent);
   check('partial word shows "bag"', partial === 'bag', partial);
   check('predictions visible mid-word', await page.locator('.pword:not(.rested)').count() >= 1);
@@ -75,6 +84,7 @@ const check = (n, c, x) => { if (c) { pass++; console.log('  PASS  ' + n); } els
 
   console.log('E) phonetic prediction: k-prefix offers c-words');
   await typeLetter('k'); await typeLetter('a');
+  await predictionsPainted();
   const preds = await page.locator('.pword:not(.rested)').allTextContents();
   check('offers cat/came/... for "ka"', preds.some(w => /^ca/i.test(w)), JSON.stringify(preds));
 
